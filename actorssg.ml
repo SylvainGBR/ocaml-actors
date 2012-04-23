@@ -60,6 +60,7 @@ let mutables_copy (s, al) =
       | _ -> argt in
   (s, List.map mutables_copy_aux al);;
 
+type actor_env = {actor: actor; sleeping : (message -> unit) Queue.t};;
 let actors = Hashtbl.create 1313 (* Should probably be a weak hashtbl *)
 
 (* let machines = Hashtbl.create 97 *)
@@ -93,7 +94,8 @@ let create f =
   incr actors_id;
   let l_act = {mailbox = Queue.create() ; mutex = Mutex.create()} in
   let new_actor = {actor_id = !actors_id; actor_location = Local l_act} in
-  Hashtbl.add actors new_actor new_actor.actor_id;
+  let new_act_env = {actor = new_actor; sleeping = Queue.create()} in
+  Hashtbl.add actors new_act_env new_actor.actor_id; 
   execute new_actor f;
   new_actor;;
 
@@ -116,7 +118,7 @@ let rec reacting a g =
 let recieve_handler = 
   try 
     let (a, f) = Queue.pop receive_scheduler in reacting a f;
-  with Queue.Empty -> ();;
+  with Queue.Empty -> Thread.delay 0.01;;
 
 
 (*val create : (actor -> unit) -> actor
