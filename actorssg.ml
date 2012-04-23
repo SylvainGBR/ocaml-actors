@@ -71,16 +71,25 @@ let a_mutex = Mutex.create()
 let receive_scheduler = Queue.create()
 let rs_mutex = Mutex.create()
 
-let send a m =
-  match a.actor_location with
-    | Local lac -> begin Mutex.lock lac.mutex; Queue.add (mutables_copy m) lac.mailbox; Mutex.unlock lac.mutex end
-    | Remote o -> ();;
-
 let schedule_receive a f =
   Mutex.lock rs_mutex;
   Queue.add (a, f) receive_scheduler;
   Mutex.unlock rs_mutex;;
 
+let awake aid =
+  let a_env = Hashtbl.find actors aid in
+  try 
+    let f = Queue.pop a_env.sleeping in
+    schedule_receive a_env.actor f
+  with Queue.Empty -> ();;
+
+let send a m =
+  match a.actor_location with
+    | Local lac -> begin Mutex.lock lac.mutex;
+      Queue.add (mutables_copy m) lac.mailbox;
+      Mutex.unlock lac.mutex; 
+      awake a.actor_id end
+    | Remote o -> ();;
 
 exception React of (message -> unit);;
 
@@ -95,7 +104,7 @@ let create f =
   let l_act = {mailbox = Queue.create() ; mutex = Mutex.create()} in
   let new_actor = {actor_id = !actors_id; actor_location = Local l_act} in
   let new_act_env = {actor = new_actor; sleeping = Queue.create()} in
-  Hashtbl.add actors new_act_env new_actor.actor_id; 
+  Hashtbl.add actors new_actor.actor_id new_act_env; 
   execute new_actor f;
   new_actor;;
 
@@ -110,12 +119,13 @@ let rec reacting a g =
             | React f -> begin  Mutex.unlock lac.mutex;
                 reacting a f end
             | NotHandled -> reacting_aux();
-        with Queue.Empty -> ();
+        with Queue.Empty -> let a_env = Hashtbl.find actors a.actor_id in
+                             Queue.add g a_env.sleeping;
       in
       reacting_aux(); end
     | Remote rac -> failwith "You cannot run a remote actor";;
   
-let recieve_handler = 
+let recieve_handler() = 
   try 
     let (a, f) = Queue.pop receive_scheduler in reacting a f;
   with Queue.Empty -> Thread.delay 0.01;;
