@@ -99,10 +99,17 @@ let execute a f =
   try f()
   with React g -> schedule_receive a g;;
 
-let create f =
+let new_aid() =
+  Mutex.lock a_mutex;
   incr actors_id;
+  let i = !actors_id in
+  begin Mutex.unlock a_mutex;
+    i end;;
+
+let create f =
+  let i = new_aid() in
   let l_act = {mailbox = Queue.create() ; mutex = Mutex.create()} in
-  let new_actor = {actor_id = !actors_id; actor_location = Local l_act} in
+  let new_actor = {actor_id = i; actor_location = Local l_act} in
   let new_act_env = {actor = new_actor; sleeping = Queue.create()} in
   Hashtbl.add actors new_actor.actor_id new_act_env; 
   execute new_actor f;
