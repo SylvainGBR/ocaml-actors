@@ -68,6 +68,7 @@ let actors_id = ref 0
 let a_mutex = Mutex.create()
 
 let receive_scheduler = Queue.create()
+let rs_mutex = Mutex.create()
 
 let send a m =
   match a.actor_location with
@@ -75,7 +76,9 @@ let send a m =
     | Remote o -> ();;
 
 let schedule_receive a f =
-Queue.add (a, f) receive_scheduler;;
+  Mutex.lock rs_mutex;
+  Queue.add (a, f) receive_scheduler;
+  Mutex.unlock rs_mutex;;
 
 
 exception React of (message -> unit);;
@@ -110,6 +113,11 @@ let rec reacting a g =
       reacting_aux(); end
     | Remote rac -> failwith "You cannot run a remote actor";;
   
+let recieve_handler = 
+  try 
+    let (a, f) = Queue.pop receive_scheduler in reacting a f;
+  with Queue.Empty -> ();;
+
 
 (*val create : (actor -> unit) -> actor
 val receive : actor -> (message -> unit) -> unit
