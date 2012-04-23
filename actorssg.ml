@@ -43,13 +43,6 @@ and actor = {
   actor_location : location;
 }
 
-let actors = Hashtbl.create 1313 (* Should probably be a weak hashtbl *)
-
-(* let machines = Hashtbl.create 97 *)
-
-let actors_id = ref 0;; 
-let a_mutex = Mutex.create();;
-
 let mutables_copy (s, al) = 
   let rec mutables_copy_aux_d (str, argt) =
     (str, mutables_copy_aux argt)
@@ -67,14 +60,39 @@ let mutables_copy (s, al) =
       | _ -> argt in
   (s, List.map mutables_copy_aux al);;
 
+let actors = Hashtbl.create 1313 (* Should probably be a weak hashtbl *)
+
+(* let machines = Hashtbl.create 97 *)
+
+let actors_id = ref 0
+let a_mutex = Mutex.create()
+
+let receive_scheduler = Queue.create()
+
 let send a m =
   match a.actor_location with
     | Local lac -> begin Mutex.lock lac.mutex; Queue.add (mutables_copy m) lac.mailbox; Mutex.unlock lac.mutex end
     | Remote o -> ();;
 
+let schedule_receive a f =
+Queue.add (a, f) receive_scheduler;;
+
+
 exception React of (message -> unit);;
 
 exception NotHandled;;
+
+let execute a f =
+  try f()
+  with React g -> schedule_receive a g;;
+
+let create f =
+  incr actors_id;
+  let l_act = {mailbox = Queue.create() ; mutex = Mutex.create()} in
+  let new_actor = {actor_id = !actors_id; actor_location = Local l_act} in
+  Hashtbl.add actors new_actor new_actor.actor_id;
+  execute new_actor f;
+  new_actor;;
 
 let rec reacting a g =
   match a.actor_location with
@@ -91,18 +109,6 @@ let rec reacting a g =
       in
       reacting_aux(); end
     | Remote rac -> failwith "You cannot run a remote actor";;
-     
-let execute a f =
-  try f()
-  with React g -> reacting a g;;
-
-let create f =
-  incr actors_id;
-  let l_act = {mailbox = Queue.create() ; mutex = Mutex.create()} in
-  let new_actor = {actor_id = !actors_id; actor_location = Local l_act} in
-  Hashtbl.add actors new_actor new_actor.actor_id;
-  execute new_actor f;
-  new_actor;;
   
 
 (*val create : (actor -> unit) -> actor
