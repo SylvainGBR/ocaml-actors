@@ -146,8 +146,7 @@ let reacting a g =
           try 
             mutex_unlock lac.mutex; g m;
           with 
-            | React f -> begin print_newline();
-              schedule_receive a f end
+            | React f -> schedule_receive a f
             | NotHandled ->  begin mutex_unlock lac.mutex;
               reacting_aux() end
         with Queue.Empty -> let a_env = Hashtbl.find actors a.actor_id in 
@@ -156,33 +155,94 @@ let reacting a g =
       in reacting_aux() end
     | Remote rac -> failwith "You cannot run a remote actor";;
   
-let rec recieve_handler() = 
+let rec receive_handler() = 
   if debug then print_string "RH : number ";
-  (try 
-     let (a, f) = Queue.pop receive_scheduler in 
-     begin  if debug then Printf.printf "%d \n" a.actor_id;
-       reacting a f end
-   with Queue.Empty -> Thread.delay 0.01);
-  recieve_handler();;
+  let cont = ref true in begin
+    (try 
+      let (a, f) = Queue.pop receive_scheduler in 
+      begin (if debug then Printf.printf "%d \n" a.actor_id);
+        reacting a f; end
+    with Queue.Empty -> let f a b c = c + Queue.length b.sleeping in 
+                        let att = Hashtbl.fold f actors 0 in
+                        if att = 0 then begin (if debug then print_string "\n Finex.\n"); cont := false end
+                        else begin Thread.delay 0.01;
+                          if debug then Printf.printf "\n\n En attente : %d \n\n" (Hashtbl.fold f actors 0) end);
+    if (!cont) then receive_handler() end;;
 
-let act1 = create() in
-let act2 = create() in
-let rec ping() =
-  react pig
-and pig m = 
-  let (st1, l) = m in 
-  if (st1 = "ping") then begin print_string "ping\n"; 
-    send act2 ("pong", (I 1) :: []);
-    ping() end in
-let rec pong() =
-  react pog
-and pog m = 
-  let (st2, l) = m in 
-  if (st2 = "pong") then begin print_string "pong\n"; 
-    send act1 ("ping", (I 1) :: []);
-    pong() end in begin
-      start act1 ping;
-      start act2 pong;
-      send act1 ("ping", (I 1) :: []);
-      recieve_handler();
-    end;;
+let ping_pong() =
+  let act1 = create() in
+  let act2 = create() in
+  let rec ping() =
+    react pig
+  and pig m = 
+    let (s, l) = m in 
+    if (s = "ping") then begin print_string "ping"; 
+      (match l with 
+        | (Actor a) :: (I i) :: q ->  Printf.printf " : %d\n" i;
+            send a ("pong", (Actor act1) :: (I (i + 1)) :: []);
+        | _ -> raise NotHandled) ;
+      ping() end in
+  let rec pong() =
+    react pog
+  and pog m = 
+    let (s, l) = m in 
+    if (s = "pong") then begin print_string "pong"; 
+      (match l with 
+        | (Actor a) :: (I i) :: q ->  Printf.printf " : %d\n" i;
+            send a ("ping", (Actor act2) :: (I (i + 1)) :: []);
+        | _ -> raise NotHandled) ;
+      pong() end
+  in begin
+    start act1 ping;
+    start act2 pong;
+    send act1 ("ping", (Actor act2) :: (I 1) :: []);
+    receive_handler();
+  end;;
+
+(* ping_pong();; *)
+
+let calcul_pi n s =
+  let main_act = create() in
+  let slave() =
+    let slv m =
+      let (str, l) = m in
+      match l with
+        | (Actor a) :: (I k) :: (I n) :: (I s) :: q -> let res = ref 0.0 in begin
+          for i = k * n / s + 1 to (k + 1) * n / s do
+            let r = (float_of_int i -. 0.5) /. float_of_int n in
+            res := (!res) +. 1. /. (1. +. r *. r);
+          done;
+          send a ("pi", (F (!res)) :: []) end
+        | _ -> raise NotHandled 
+    in
+    react slv
+  in 
+  let master() =
+    let compteur = ref 1 in
+    let res = ref 0.0 in
+    let rec act() =
+      react  mlisten
+    and mlisten m =
+      let (str, l) = m in
+      match l with
+        | (F r) :: q -> res := (!res) +. r;
+            if (!compteur = s) then Printf.printf "*** %f ***\n"  (4. *. !res /. float_of_int n) 
+            else begin if debug then begin print_string "Recu "; print_int (!compteur) end;
+              incr compteur; 
+              act() end;
+        | _ -> raise NotHandled
+    in act()
+  in 
+  start main_act master;
+  for k = 0 to s-1 do 
+    let ac = create() in begin
+    start ac slave;
+    send ac ("pi", (Actor main_act) :: (I k) :: (I n) :: (I s) :: []);
+    if debug then Printf.printf "Sent pi_request to %d \n" k
+    end
+  done;
+  receive_handler();;
+  
+calcul_pi 36000000 1500000;;
+
+let f a b c = c + Queue.length b.sleeping;;
