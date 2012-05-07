@@ -1,4 +1,4 @@
-SOURCES = my_queue.ml actorssg.ml
+SOURCES = my_queue.ml actorssg.ml test.ml
 EXE = actorssg
 
 all:
