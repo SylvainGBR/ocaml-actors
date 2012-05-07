@@ -65,10 +65,15 @@ let mutables_copy (s, al) =
       | _ -> argt in
   (s, List.map mutables_copy_aux al);;
 
-type actor_env = {actor: actor; sleeping : (message -> unit) Queue.t};;
+type actor_env = {actor: actor; sleeping : (message -> unit) Queue.t}
 let actors = Hashtbl.create 1313 (* Should probably be a weak hashtbl *)
   
-(* let machines = Hashtbl.create 97 *)
+type machine = {
+  name : string;
+  inc : in_channel;
+  out : out_channel;
+}
+let machines = Hashtbl.create 97 
 
 let mutex_lock mut =
   debug "Locking. %!";
@@ -106,6 +111,11 @@ let awake aid =
         end
     | Remote o -> failwith "You cannot awake a remote actor";;
 
+type netdata = {
+  to_actor : actor;
+  msg : message;
+}
+
 let send a m =
   match a.actor_location with
     | Local lac -> begin debug "In Send : %!";
@@ -113,8 +123,16 @@ let send a m =
       My_queue.add (mutables_copy m) lac.mailbox;
       mutex_unlock lac.mutex; 
       awake a.actor_id end
-    | Remote o -> ();;
-
+    | Remote rma -> let rmm = (try Hashtbl.find machines rma.actor_host 
+      with Not_found -> try let host = Unix.gethostbyname rma.actor_host in 
+                            let (i, o) = Unix.open_connection (Unix.ADDR_INET (host.Unix.h_addr_list.(0), 80)) in
+                            let m = {name = rma.actor_host; inc = i; out = o} in
+                            Hashtbl.add machines rma.actor_host m;
+                            m;
+        with Not_found -> failwith "Wrong machine name") in
+                    output_value rmm.out m;
+                    flush rmm.out;;
+                      
 exception React of (message -> unit);;
 
 exception NotHandled;;
