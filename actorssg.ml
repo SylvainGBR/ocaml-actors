@@ -47,11 +47,12 @@ and actor = {
   actor_location : location;
 }
 
-let local_machine = 2
+let local_machine = Unix.gethostname()
 
 let local_to_remote a =
 match a.actor_location with
-  | Local lac -> a (*Changer*)
+  | Local lac -> let rma = {actor_host = local_machine} in
+ {actor_id = a.actor_id; actor_location = Remote rma}
   | Remote rma -> a;;
 
 type actor_env = {actor: actor; sleeping : (message -> unit) Queue.t}
@@ -105,23 +106,32 @@ type netdata = {
   msg : message;
 }
 
-let send a m =  (*Changer*)
+let send a m =  (*Changer transfo messages*)
   match a.actor_location with
     | Local lac -> begin debug "In Send : %!";
       mutex_lock lac.mutex;
       My_queue.add m lac.mailbox;
       mutex_unlock lac.mutex; 
       awake a.actor_id end
-    | Remote rma -> let rmm = (try Hashtbl.find machines rma.actor_host 
-      with Not_found -> try let host = Unix.gethostbyname rma.actor_host in 
-                            let (i, o) = Unix.open_connection (Unix.ADDR_INET (host.Unix.h_addr_list.(0), 80)) in
-                            let m = {name = rma.actor_host; inc = i; out = o} in
-                            Hashtbl.add machines rma.actor_host m;
-                            m;
-        with Not_found -> failwith "Wrong machine name") in
-                    output_value rmm.out m;
-                    flush rmm.out;;
-                      
+    | Remote rma -> if rma.actor_host = local_machine then 
+        (try let aenv = Hashtbl.find actors a.actor_id in
+             match aenv.actor.actor_location with
+               | Local lac -> begin mutex_lock lac.mutex;
+                 My_queue.add m lac.mailbox;
+                 mutex_unlock lac.mutex; 
+                 awake a.actor_id end
+               | Remote rma -> failwith "The actors table is not supposed to have remote actors"
+         with Not_found -> debug "The actor number %n doesn't exist\n%!" a.actor_id)
+      else let rmm = (try Hashtbl.find machines rma.actor_host 
+        with Not_found -> try let host = Unix.gethostbyname rma.actor_host in 
+                              let (i, o) = Unix.open_connection (Unix.ADDR_INET (host.Unix.h_addr_list.(0), 80)) in
+                              let m = {name = rma.actor_host; inc = i; out = o} in
+                              Hashtbl.add machines rma.actor_host m;
+                              m;
+          with Not_found -> failwith "Wrong machine name") in
+           output_value rmm.out m;
+           flush rmm.out;;
+
 exception React of (message -> unit);;
 
 exception NotHandled;;
