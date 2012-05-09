@@ -7,7 +7,7 @@ type arg =
   | Actor of actor
 
   | C of char
-  | S of string
+  | S of string 
   | I of int
   | F of float
 
@@ -18,7 +18,7 @@ type arg =
   | LC of char list
   | LS of string list
   | LI of int list
-  | LF of float list
+  | LF of float list 
 
   | AC of char array
   | AS of string array
@@ -30,13 +30,12 @@ and message = string * arg list
 and local_actor = {
   mailbox : message My_queue.t;
   mutex : Mutex.t;
- (* handler : (message -> unit);*)
 }
 
 and remote_actor = {
   actor_host : string; (* uniq identifier of the machine on which it was created (20-byte string generated randomly at startup) *)
-  remote_ip : string;
-  remote_port : int;
+  (* remote_ip : string; *)
+  (* remote_port : int; *)
 }
     
 and location =
@@ -47,23 +46,13 @@ and actor = {
   actor_id : int; (* local number of the actor when it was created *)
   actor_location : location;
 }
-    
-let mutables_copy (s, al) = 
-  let rec mutables_copy_aux_d (str, argt) =
-    (str, mutables_copy_aux argt)
-  and mutables_copy_aux argt =
-    match argt with
-      | A a -> A (Array.copy a);
-      | AC ac -> AC (Array.copy ac);
-      | AS ast -> AS (Array.copy ast);
-      | AI ai -> AI (Array.copy ai);
-      | AF af -> AF (Array.copy af);
-      | L [] -> L [];
-      | L l -> L (List.map mutables_copy_aux l);
-      | D [] -> D [];
-      | D l -> D (List.map mutables_copy_aux_d l);
-      | _ -> argt in
-  (s, List.map mutables_copy_aux al);;
+
+let local_machine = 2
+
+let local_to_remote a =
+match a.actor_location with
+  | Local lac -> a (*Changer*)
+  | Remote rma -> a;;
 
 type actor_env = {actor: actor; sleeping : (message -> unit) Queue.t}
 let actors = Hashtbl.create 1313 (* Should probably be a weak hashtbl *)
@@ -116,11 +105,11 @@ type netdata = {
   msg : message;
 }
 
-let send a m =
+let send a m =  (*Changer*)
   match a.actor_location with
     | Local lac -> begin debug "In Send : %!";
       mutex_lock lac.mutex;
-      My_queue.add (mutables_copy m) lac.mailbox;
+      My_queue.add m lac.mailbox;
       mutex_unlock lac.mutex; 
       awake a.actor_id end
     | Remote rma -> let rmm = (try Hashtbl.find machines rma.actor_host 
@@ -177,6 +166,20 @@ let reacting a g =
           Queue.add g a_env.sleeping; mutex_unlock lac.mutex end
       in reacting_aux() end
     | Remote rac -> failwith "You cannot run a remote actor";;
+
+let rec receive_remote i =
+  debug "In receive_remote : %!";
+  let ndat = input_value i in
+  if ndat.to_actor.actor_id = 0 then () (*Changer*)
+  else (try let aenv = Hashtbl.find actors ndat.to_actor.actor_id in
+      match aenv.actor.actor_location with
+        | Local lac -> begin mutex_lock lac.mutex;
+          My_queue.add ndat.msg lac.mailbox;
+          mutex_unlock lac.mutex; 
+          awake ndat.to_actor.actor_id end
+        | Remote rma -> failwith "The actors table is not supposed to have remote actors"
+  with Not_found -> debug "The actor number %n doesn't exist\n%!" ndat.to_actor.actor_id);
+  receive_remote i;;
 
 let rec receive_handler() = 
   debug "RH : number %!";
