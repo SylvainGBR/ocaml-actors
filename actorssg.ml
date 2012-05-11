@@ -49,17 +49,13 @@ and actor = {
 
 let local_machine = Unix.gethostname()
 
-let local_to_remote a =
-match a.actor_location with
-  | Local lac -> let rma = {actor_host = local_machine} in
- {actor_id = a.actor_id; actor_location = Remote rma}
-  | Remote rma -> a;;
-
 type actor_env = {actor: actor; sleeping : (message -> unit) Queue.t}
 let actors = Hashtbl.create 1313 (* Should probably be a weak hashtbl *)
   
 type machine = {
   name : string;
+  agent : actor;
+  support : Thread.t;
   inc : in_channel;
   out : out_channel;
 }
@@ -135,28 +131,18 @@ type netdata = {
   msg : message;
 }
 
-let send a m =
-  match a.actor_location with
-    | Local lac -> begin debug "In Send : %!";
-      mutex_lock lac.mutex;
-      My_queue.add m lac.mailbox;
-      mutex_unlock lac.mutex; 
-      awake a.actor_id end
-    | Remote rma -> let rmm = (try Hashtbl.find machines rma.actor_host 
-      with Not_found -> try let host = Unix.gethostbyname rma.actor_host in 
-                            let (i, o) = Unix.open_connection (Unix.ADDR_INET (host.Unix.h_addr_list.(0), 80)) in
-                            let hst = {name = rma.actor_host; inc = i; out = o} in
-                            Hashtbl.add machines rma.actor_host hst;
-                            hst;
-        with Not_found -> failwith "Wrong machine name") in
-                    output_value rmm.out (actors_update_send m);
-                    flush rmm.out;;
-
 exception React of (message -> unit);;
 
 exception NotHandled;;
 
 let react f = raise (React f);;
+
+let rec sender o =
+  let snd m = 
+    output_value o m;
+    flush o;
+    sender o in
+  react snd;;
 
 let start a f =
  debug "Starting Actor %d \n%!" a.actor_id;
@@ -177,6 +163,35 @@ let create() =
   Hashtbl.add actors new_actor.actor_id new_act_env;
   new_actor;;
 
+let rec send a m =
+  match a.actor_location with
+    | Local lac -> begin debug "In Send : %!";
+      mutex_lock lac.mutex;
+      My_queue.add m lac.mailbox;
+      mutex_unlock lac.mutex; 
+      awake a.actor_id end
+    | Remote rma -> let rmm = (try Hashtbl.find machines rma.actor_host 
+      with Not_found -> try let host = Unix.gethostbyname rma.actor_host in 
+                            let (i, o) = Unix.open_connection (Unix.ADDR_INET (host.Unix.h_addr_list.(0), 80)) in
+                            let ac = create() in
+                            let t = Thread.create receive_remote i in
+                            let hst = {name = rma.actor_host; agent = ac; support = t; inc = i; out = o} in
+                            Hashtbl.add machines rma.actor_host hst;
+                            start ac (fun() -> sender o);
+                            hst;
+        with Not_found -> failwith "Wrong machine name") in
+                    send rmm.agent (actors_update_send m)
+and receive_remote i =
+  debug "In receive_remote : %!";
+  let ndat = input_value i in
+  if ndat.to_actor.actor_id = 0 then () (*Changer*)
+  else (try let aenv = Hashtbl.find actors ndat.to_actor.actor_id in
+            match aenv.actor.actor_location with
+              | Local lac -> send aenv.actor (actors_update_receive ndat.msg)
+              | Remote rma -> debug "The actors table is not supposed to have remote actors"
+    with Not_found -> debug "The actor number %n doesn't exist\n%!" ndat.to_actor.actor_id);
+  receive_remote i;;
+
 let reacting a g =
   match a.actor_location with
     | Local lac -> begin debug "In Reacting : %!";
@@ -196,17 +211,6 @@ let reacting a g =
           Queue.add g a_env.sleeping; mutex_unlock lac.mutex end
       in reacting_aux() end
     | Remote rac -> failwith "You cannot run a remote actor";;
-
-let rec receive_remote i =
-  debug "In receive_remote : %!";
-  let ndat = input_value i in
-  if ndat.to_actor.actor_id = 0 then () (*Changer*)
-  else (try let aenv = Hashtbl.find actors ndat.to_actor.actor_id in
-            match aenv.actor.actor_location with
-              | Local lac -> send aenv.actor (actors_update_receive ndat.msg)
-              | Remote rma -> debug "The actors table is not supposed to have remote actors"
-    with Not_found -> debug "The actor number %n doesn't exist\n%!" ndat.to_actor.actor_id);
-  receive_remote i;;
 
 let rec receive_handler() = 
   debug "RH : number %!";
