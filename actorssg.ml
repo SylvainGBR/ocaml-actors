@@ -65,6 +65,35 @@ type machine = {
 }
 let machines = Hashtbl.create 97 
 
+exception IncorrectMessage;;
+
+let actors_update_send m =
+  let rec actors_update_aux l =
+    match l with
+      | [] -> [];
+      | (Actor a) :: q -> (match a.actor_location with
+          | Local lac -> let rml = {actor_host = local_machine} in
+                         (Actor {actor_id = a.actor_id; actor_location = Remote rml}) :: (actors_update_aux q);
+          | Remote rma -> (Actor a) :: (actors_update_aux q););
+      | t :: q -> t :: (actors_update_aux q) in
+  let (s, l) = m in (s, actors_update_aux l);;
+          
+let actors_update_receive m =
+  let rec actors_update_aux l =
+    match l with
+      | [] -> [];
+      | (Actor a) :: q -> (match a.actor_location with
+          | Remote rma -> if rma.actor_host = local_machine then  
+              (try let aenv = Hashtbl.find actors a.actor_id in
+                   (Actor aenv.actor) :: (actors_update_aux q);
+               with Not_found -> debug "The actor number %n doesn't exist\n%!" a.actor_id;
+                 raise IncorrectMessage)
+            else (Actor a) :: (actors_update_aux q);             
+          | Local lac -> debug "The actor number %n is local!%!" a.actor_id;
+              raise IncorrectMessage);
+      | t :: q -> t :: (actors_update_aux q) in
+  let (s, l) = m in (s, actors_update_aux l);;
+
 let mutex_lock mut =
   debug "Locking. %!";
   Mutex.lock mut;
