@@ -135,31 +135,22 @@ type netdata = {
   msg : message;
 }
 
-let send a m =  (*Changer transfo messages*)
+let send a m =
   match a.actor_location with
     | Local lac -> begin debug "In Send : %!";
       mutex_lock lac.mutex;
       My_queue.add m lac.mailbox;
       mutex_unlock lac.mutex; 
       awake a.actor_id end
-    | Remote rma -> if rma.actor_host = local_machine then 
-        (try let aenv = Hashtbl.find actors a.actor_id in
-             match aenv.actor.actor_location with
-               | Local lac -> begin mutex_lock lac.mutex;
-                 My_queue.add m lac.mailbox;
-                 mutex_unlock lac.mutex; 
-                 awake a.actor_id end
-               | Remote rma -> failwith "The actors table is not supposed to have remote actors"
-         with Not_found -> debug "The actor number %n doesn't exist\n%!" a.actor_id)
-      else let rmm = (try Hashtbl.find machines rma.actor_host 
-        with Not_found -> try let host = Unix.gethostbyname rma.actor_host in 
-                              let (i, o) = Unix.open_connection (Unix.ADDR_INET (host.Unix.h_addr_list.(0), 80)) in
-                              let m = {name = rma.actor_host; inc = i; out = o} in
-                              Hashtbl.add machines rma.actor_host m;
-                              m;
-          with Not_found -> failwith "Wrong machine name") in
-           output_value rmm.out m;
-           flush rmm.out;;
+    | Remote rma -> let rmm = (try Hashtbl.find machines rma.actor_host 
+      with Not_found -> try let host = Unix.gethostbyname rma.actor_host in 
+                            let (i, o) = Unix.open_connection (Unix.ADDR_INET (host.Unix.h_addr_list.(0), 80)) in
+                            let hst = {name = rma.actor_host; inc = i; out = o} in
+                            Hashtbl.add machines rma.actor_host hst;
+                            hst;
+        with Not_found -> failwith "Wrong machine name") in
+                    output_value rmm.out (actors_update_send m);
+                    flush rmm.out;;
 
 exception React of (message -> unit);;
 
@@ -211,13 +202,10 @@ let rec receive_remote i =
   let ndat = input_value i in
   if ndat.to_actor.actor_id = 0 then () (*Changer*)
   else (try let aenv = Hashtbl.find actors ndat.to_actor.actor_id in
-      match aenv.actor.actor_location with
-        | Local lac -> begin mutex_lock lac.mutex;
-          My_queue.add ndat.msg lac.mailbox;
-          mutex_unlock lac.mutex; 
-          awake ndat.to_actor.actor_id end
-        | Remote rma -> failwith "The actors table is not supposed to have remote actors"
-  with Not_found -> debug "The actor number %n doesn't exist\n%!" ndat.to_actor.actor_id);
+            match aenv.actor.actor_location with
+              | Local lac -> send aenv.actor (actors_update_receive ndat.msg)
+              | Remote rma -> debug "The actors table is not supposed to have remote actors"
+    with Not_found -> debug "The actor number %n doesn't exist\n%!" ndat.to_actor.actor_id);
   receive_remote i;;
 
 let rec receive_handler() = 
