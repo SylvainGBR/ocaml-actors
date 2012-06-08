@@ -5,7 +5,7 @@ open Actorssg;;
 
 Printf.printf "Local Node : %n\n%!" local_node;
 let ac = create() in
-let nod = client "193.55.250.242" in
+let nod = client Sys.argv.(1) in
 nodes_display();
 Printf.printf "Noeud distant : %n\n%!" nod.name;
 
