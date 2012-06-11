@@ -1,6 +1,7 @@
 open Sys;;
 open Unix;;
-open Actors;;
+open ActorsType;;
+open ActorsGlobal;;
 open Actorssg;;
 
 Printf.printf "Local Node : %n\n%!" local_node;

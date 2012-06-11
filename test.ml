@@ -1,4 +1,4 @@
-open Actors
+open ActorsType
 open Actorssg
 
 let ping_pong() =

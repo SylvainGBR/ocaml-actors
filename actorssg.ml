@@ -1,58 +1,5 @@
-open Actors
-
-let debug_flag = ref false
-let debug fmt =
-  if !debug_flag then Printf.eprintf fmt
-  else Printf.ifprintf stderr fmt;;
-
-let mutex_debug_flag = ref false
-let mutex_debug fmt =
-  if !mutex_debug_flag then Printf.eprintf fmt
-  else Printf.ifprintf stderr fmt;;
-
-Random.init (int_of_float (Unix.time()));;
-let local_node = Random.int 1024;;
-let local_machine = Unix.gethostname();;
-
-type actor_env = {actor: actor; sleeping : (message -> unit) Queue.t}
-
-let actors = Hashtbl.create 1313 (* Should probably be a weak hashtbl *)
-
-let actors_display() = 
-  Printf.printf "Actors : ";
-  let f a b c = Printf.printf "%n\n%!" a; c in
-  Hashtbl.fold f actors ();;
-  
-type node = {
-  name : int;
-  agent : actor;
-  support : Thread.t;
-}
-let nodes = Hashtbl.create 97 
-let n_mutex = Mutex.create()
-
-let nodes_display() = 
-  Printf.printf "Nodes : ";
-  let f a b c = Printf.printf "%n\n%!" a; c in
-  Hashtbl.fold f nodes ();;
-
-exception IncorrectMessage;;
-
-let mutex_lock mut =
-  mutex_debug "Locking. %!";
-  Mutex.lock mut;
-  mutex_debug "Locked. %!";;
-
-let mutex_unlock mut = 
-  mutex_debug "Unlocking. %!";
-  Mutex.unlock mut; 
-  mutex_debug "Unlocked. \n%!";;
-
-let actors_id = ref 0
-let a_mutex = Mutex.create()
-
-let receive_scheduler = Queue.create()
-let rs_mutex = Mutex.create()
+open ActorsType
+open ActorsGlobal
 
 let schedule_receive a f =
   debug "In Schedule_receive : %!";
@@ -73,13 +20,6 @@ let awake aid =
           with Queue.Empty -> mutex_unlock lac.mutex
         end
     | Remote o -> failwith "You cannot awake a remote actor";;
-
-type netdata = {
-  to_actor : int;
-  msg : message;
-}
-
-exception React of (message -> unit);;
 
 let react f = raise (React f);;
 
@@ -174,6 +114,7 @@ and client_aux server_name =
     with Not_found ->
       prerr_endline (server_name ^ ": Host not found");
       exit 2 in
+  Printf.printf "Adress : %s\n%!" (Unix.string_of_inet_addr server_addr);
   Unix.open_connection (Unix.ADDR_INET(server_addr, port_number))
 and client server_name =
   let (i, o) = Unix.handle_unix_error client_aux server_name in
@@ -183,9 +124,9 @@ and client server_name =
   let ac = create() in
   let t = Thread.create receive_remote (i, rmn) in
   let hst = {name = rmn; agent = ac; support = t} in
-  (* mutex_lock n_mutex; *)
+  mutex_lock n_mutex;
   Hashtbl.add nodes rmn hst;
-  (* mutex_unlock n_mutex; *)
+  mutex_unlock n_mutex;
   start ac (fun() -> sender o);
   hst;;
 

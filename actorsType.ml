@@ -43,6 +43,24 @@ and actor = {
   actor_location : location;
 }
 
+type actor_env = {actor: actor; sleeping : (message -> unit) Queue.t}
+
+type node = {
+  name : int;
+  agent : actor;
+  support : Thread.t;
+}
+
+type netdata = {
+  to_actor : int;
+  msg : message;
+}
+
+exception React of (message -> unit);;
+
+exception IncorrectMessage;;
+
+
 let print_actor a =
   match a.actor_location with
     | Local lac -> Printf.printf "Local %n; \n%!" a.actor_id;

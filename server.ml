@@ -1,6 +1,7 @@
 open Sys;;
 open Unix;;
-open Actors;;
+open ActorsType;;
+open ActorsGlobal;;
 open Actorssg;;
 
 let rec bonjour q =
@@ -52,6 +53,7 @@ let server () =
   (* local_node := (!local_node) ^ string_of_int (Random.int 1024); *)
   Printf.printf "Local Node : %n\n%!" local_node;
   let port = 4242 in
+  Printf.printf "%s\n%!" (string_of_inet_addr ((gethostbyname(gethostname())).h_addr_list.(0)));
      (* let host = (gethostbyname(gethostname())).h_addr_list.(0) in *)
   (* let host = (gethostbyname "127.0.0.1").h_addr_list.(0) in *)
   let host = (gethostbyname "193.55.250.242").h_addr_list.(0) in

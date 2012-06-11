@@ -1,4 +1,4 @@
-SOURCES = my_queue.ml actors.ml actorssg.ml
+SOURCES = my_queue.ml actorsType.ml actorsGlobal.ml actorssg.ml
 EXEC1 = client
 EXEC2 = server 
 CAMLC = ocamlc
