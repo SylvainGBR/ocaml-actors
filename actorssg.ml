@@ -10,16 +10,12 @@ let schedule_receive a f =
 let awake aid =
   debug "In Awake : %!";
   let a_env = Hashtbl.find actors aid in
-  match a_env.actor.actor_location with
-    | Local lac ->
-        begin mutex_lock lac.mutex; 
-          try
-            let f = Queue.pop a_env.sleeping in
-            begin schedule_receive a_env.actor f;
-              mutex_unlock lac.mutex end
-          with Queue.Empty -> mutex_unlock lac.mutex
-        end
-    | Remote o -> failwith "You cannot awake a remote actor";;
+  mutex_lock a_env.s_mutex; 
+  try
+    let f = Queue.pop a_env.sleeping in
+    begin schedule_receive a_env.actor f;
+      mutex_unlock a_env.s_mutex end
+  with Queue.Empty -> mutex_unlock a_env.s_mutex;;
 
 let react f = raise (React f);;
 
@@ -38,9 +34,9 @@ let create() =
       Mutex.unlock a_mutex;
       i end in
   let id = new_aid() in
-  let l_act = {mailbox = My_queue.create() ; mutex = Mutex.create()} in
+  let l_act = {mailbox = My_queue.create() ; w_mutex = Mutex.create(); r_mutex = Mutex.create()} in
   let new_actor = {actor_id = id; actor_location = Local l_act} in
-  let new_act_env = {actor = new_actor; sleeping = Queue.create()} in
+  let new_act_env = {actor = new_actor; sleeping = Queue.create(); s_mutex = Mutex.create()} in
   Hashtbl.add actors new_actor.actor_id new_act_env;
   new_actor;;
 
@@ -87,9 +83,9 @@ let rec sender o =
 let rec send a m =
   match a.actor_location with
     | Local lac -> begin debug "Sending to the local actor %n : %!" a.actor_id;
-      mutex_lock lac.mutex;
+      mutex_lock lac.w_mutex;
       My_queue.add m lac.mailbox;
-      mutex_unlock lac.mutex; 
+      mutex_unlock lac.w_mutex; 
       awake a.actor_id end
     | Remote rma -> debug "Sending to the remote actor %n from %s %n %!" a.actor_id rma.actor_host rma.actor_node; 
         let rmn = (try Hashtbl.find nodes rma.actor_node 
@@ -130,8 +126,6 @@ and client server_name =
   start ac (fun() -> sender o);
   hst;;
 
-let functions = Hashtbl.create 97 
-
 let rec host_actor() =
   react ca
 and ca m =
@@ -159,32 +153,49 @@ let reacting a g =
   match a.actor_location with
     | Local lac ->
         let rec reacting_aux() = 
-          mutex_lock lac.mutex;
+          mutex_lock lac.w_mutex;
           try
             let m = My_queue.take lac.mailbox in
             try 
-              mutex_unlock lac.mutex; g m
+              mutex_unlock lac.w_mutex; g m;
             with 
               | React f -> schedule_receive a f;
               | NotHandled -> begin reacting_aux();
-                mutex_lock lac.mutex;
+                mutex_lock lac.w_mutex;
                 My_queue.push m lac.mailbox;
-                mutex_unlock lac.mutex end
-          with My_queue.Empty -> let a_env = Hashtbl.find actors a.actor_id in begin
-            Queue.add g a_env.sleeping; mutex_unlock lac.mutex end
-        in reacting_aux()
+                mutex_unlock lac.w_mutex end
+          with My_queue.Empty -> let a_env = Hashtbl.find actors a.actor_id in begin mutex_lock a_env.s_mutex;
+            Queue.add g a_env.sleeping; mutex_unlock a_env.s_mutex; mutex_unlock lac.w_mutex end
+        in begin mutex_lock lac.r_mutex; reacting_aux(); mutex_unlock lac.r_mutex end
     | Remote rac -> failwith "You cannot run a remote actor";;
 
-let rec receive_handler() = 
-  (* debug "RH : number %!"; *)
+let rec receive_handler() =
+  debug "In RH :%!";
+  Printf.printf " %n %!" !nb_threads;
+  let exec (a, f) =
+    reacting a f; mutex_lock nbt_mutex; nb_threads:= !nb_threads - 1; mutex_unlock nbt_mutex in
+  let rec eval a f b =
+    mutex_lock nbt_mutex;
+    if (!nb_threads >= !nb_threadmax)
+    then if b then begin mutex_unlock nbt_mutex; Thread.delay 0.1; eval a f false end
+      else begin nb_threadmax := (!nb_threadmax) * 3 / 2;
+        mutex_unlock nbt_mutex;
+        eval a f true end
+    else
+      (incr nb_threads;
+       mutex_unlock nbt_mutex;
+       ignore (Thread.create exec (a, f));
+       debug "RH : number %d \n%!" a.actor_id) in
   let cont = ref true in begin
-    (try 
-      let (a, f) = Queue.pop receive_scheduler in 
-      begin (* debug "%d \n%!" a.actor_id; *)
-        reacting a f; end
-    with Queue.Empty -> let f a b c = c + Queue.length b.sleeping in 
-                        let att = Hashtbl.fold f actors 0 in
-                        if att = 0 then begin debug "\n Finex.\n%!"; cont := false end
-                        else begin  Thread.delay 0.0001; 
-                          (* debug " En attente : %d \n%!" (Hashtbl.fold f actors 0) end*) end); 
+    (try
+       mutex_lock rs_mutex;
+       let (a, f) = Queue.pop receive_scheduler in
+       mutex_unlock rs_mutex;
+       eval a f true;
+     with Queue.Empty -> mutex_unlock rs_mutex; 
+       let f a b c = c + Queue.length b.sleeping in
+       let att = Hashtbl.fold f actors 0 in
+       if (att = 0 && !nb_threads = 0) then begin Thread.delay 0.001; debug "\n Finex.\n%!"; cont := false end
+       else begin debug "Attente : %n%!" att; Thread.delay 0.001;
+                          (* debug " En attente : %d \n%!" (Hashtbl.fold f actors 0) end*) end);
     if (!cont) then receive_handler() end;;

@@ -24,7 +24,8 @@ and message = string * arg list
 
 and local_actor = {
   mailbox : message My_queue.t;
-  mutex : Mutex.t;
+  w_mutex : Mutex.t;
+  r_mutex : Mutex.t;
 }
 
 and remote_actor = {
@@ -43,7 +44,11 @@ and actor = {
   actor_location : location;
 }
 
-type actor_env = {actor: actor; sleeping : (message -> unit) Queue.t}
+type actor_env = {
+  actor: actor;
+  s_mutex : Mutex.t;
+  sleeping : (message -> unit) Queue.t
+}
 
 type node = {
   name : int;

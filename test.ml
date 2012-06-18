@@ -1,40 +1,45 @@
 open ActorsType
+open ActorsGlobal
 open Actorssg
 
 let ping_pong() =
   let act1 = create() in
-  (* let act2 = create() in *)
+  let act2 = create() in
   let rec ping() =
     react pig
   and pig m = 
-    let (s, l) = m in 
-    if (s = "ping") then begin print_string "ping"; 
+    let (s, l) = m in
+    if (s = "ping") then begin Printf.printf "ping"; 
       (match l with 
         | (Actor a) :: (I i) :: q ->  Printf.printf " : %d\n%!" i;
             send a ("pong", (Actor act1) :: (I (i + 1)) :: []);
         | _ -> raise NotHandled) ;
-      ping() end in
+      ping() end 
+    else raise NotHandled
+  in
   let rec pong() =
     react pog
   and pog m = 
-    let (s, l) = m in 
-    if (s = "pong") then begin print_string "pong"; 
+    let (s, l) = m in
+    if (s = "pong") then begin Printf.printf "pong"; 
       (match l with 
-        | (Actor a) :: (I i) :: q ->  Printf.printf " : %d\n%!" i;
-            (* send a ("ping", (Actor act2) :: (I (i + 1)) :: []); *)
-            send a ("ping", (Actor act1) :: (I (i + 1)) :: []);
+        | (Actor a) :: (I i) :: q ->  Printf.printf " : %n\n%!" i;
+            (* Printf.printf "Threads : %n\n%!" (!nb_threads); *)
+            send a ("ping", (Actor act2) :: (I (i + 1)) :: []);
+            (* send a ("ping", (Actor act1) :: (I (i + 1)) :: []); *)
         | _ -> raise NotHandled) ;
       pong() end
+    else raise NotHandled
   in begin
     start act1 ping;
-    (* start act2 pong; *)
-    start act1 pong;
-    (* send act1 ("ping", (Actor act2) :: (I 1) :: []); *)
-    send act1 ("ping", (Actor act1) :: (I 1) :: []);
+    start act2 pong;
+    (* start act1 pong; *)
+    send act1 ("ping", (Actor act2) :: (I 1) :: []);
+    (* send act1 ("ping", (Actor act1) :: (I 1) :: []); *)
     receive_handler();
   end;;
 
-ping_pong();;
+(* ping_pong();; *)
 
 let calcul_pi n s =
   let t = Sys.time() in
@@ -62,7 +67,7 @@ let calcul_pi n s =
       let (str, l) = m in
       match l with
         | (F r) :: q -> res := (!res) +. r;
-            if (!compteur = s) then Printf.printf "*** %f ***\n %!"  (4. *. !res /. float_of_int n) 
+            if (!compteur = s) then Printf.printf "*** Actors : %f ***\n %!"  (4. *. !res /. float_of_int n) 
             else begin debug "Recu %d%!" (!compteur);
               incr compteur; 
               act() end;
@@ -80,7 +85,7 @@ let calcul_pi n s =
   receive_handler();
   Printf.printf "*** Time : %f ***\n %!" (Sys.time() -. t);;
 
-(* calcul_pi 30000000 1;; *)
+calcul_pi 30000000 100;;
 
 let calcul_picpu n =
   let t = Sys.time() in
@@ -92,4 +97,4 @@ let calcul_picpu n =
   Printf.printf "*** CPU : %f ***\n%!" (4. *. !res /. float_of_int n);
   Printf.printf "*** Time : %f ***\n %!" (Sys.time() -. t);;
 
-(* calcul_picpu 30000000;; *)
+calcul_picpu 30000000;;

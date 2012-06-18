@@ -29,13 +29,6 @@ let rec irc_talk rem =
   send rem ("post", [S s; S pseudo]);
   irc_talk rem in
 
-(* let rec funtest rem = *)
-(*   let s = input_line (in_channel_of_descr stdin) in *)
-(*   Printf.printf "You Wrote : %s \n%!" s;  *)
-(*   print_actor rem; *)
-(*   send rem ("post", [S s]); *)
-(*   funtest rem in *)
-
 let irc_connect() =
 
   let rec display() =
@@ -49,7 +42,6 @@ let irc_connect() =
     match m with 
       | ("connected", (Actor a) :: q) -> Printf.printf "Connected ! \n%!";
           let _ = Thread.create irc_talk a in 
-          (* let _ = Thread.create funtest a in Printf.printf "fdvfezgfdzf\n%!"; *)
           display()
       | _ -> react wait_validation
 

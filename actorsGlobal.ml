@@ -44,3 +44,9 @@ let a_mutex = Mutex.create()
 
 let (receive_scheduler : (actor * (message -> unit)) Queue.t) = Queue.create()
 let rs_mutex = Mutex.create()
+
+let (functions : (string, arg list -> unit) Hashtbl.t) = Hashtbl.create 97 
+
+let nb_threads = ref 0
+let nb_threadmax = ref 4
+let nbt_mutex = Mutex.create()
