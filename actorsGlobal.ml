@@ -48,5 +48,10 @@ let rs_mutex = Mutex.create()
 let (functions : (string, arg list -> unit) Hashtbl.t) = Hashtbl.create 97 
 
 let nb_threads = ref 0
-let nb_threadmax = ref 4
+let active_threads = ref 0
+let nb_threadmax = 5
 let nbt_mutex = Mutex.create()
+
+let receive_cond = Condition.create();;
+let rc_mutex = Mutex.create();;
+
